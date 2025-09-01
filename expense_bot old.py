@@ -1,7 +1,6 @@
 import logging
 import re
 import os
-import json
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 import asyncio
@@ -10,6 +9,11 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 import gspread
 from google.oauth2.service_account import Credentials
+import openai  # Para categorización inteligente (opcional)
+from dotenv import load_dotenv
+
+# Cargar variables de entorno
+load_dotenv()
 
 # Configuración de logging
 logging.basicConfig(
@@ -19,16 +23,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class ExpenseBot:
-    def __init__(self):
-        # Obtener variables de entorno
-        self.telegram_token = os.getenv('TELEGRAM_TOKEN')
-        self.spreadsheet_key = os.getenv('SPREADSHEET_KEY')
-        
-        # Verificar variables requeridas
-        if not self.telegram_token:
-            raise ValueError("TELEGRAM_TOKEN no está configurado")
-        if not self.spreadsheet_key:
-            raise ValueError("SPREADSHEET_KEY no está configurado")
+    def __init__(self, telegram_token: str, google_credentials_file: str, spreadsheet_key: str):
+        self.telegram_token = telegram_token
+        self.google_credentials_file = google_credentials_file
+        self.spreadsheet_key = spreadsheet_key
         
         # Inicializar Google Sheets
         self.setup_google_sheets()
@@ -46,34 +44,20 @@ class ExpenseBot:
         }
     
     def setup_google_sheets(self):
-        """Configurar conexión con Google Sheets usando variable de entorno"""
+        """Configurar conexión con Google Sheets"""
         try:
             scope = ['https://spreadsheets.google.com/feeds',
                     'https://www.googleapis.com/auth/drive',
                     'https://www.googleapis.com/auth/spreadsheets']
             
-            # Obtener credenciales desde variable de entorno
-            credentials_json = os.getenv('GOOGLE_CREDENTIALS')
-            if not credentials_json:
-                raise ValueError("GOOGLE_CREDENTIALS no está configurado")
-            
-            # Parsear el JSON de credenciales
-            credentials_dict = json.loads(credentials_json)
-            
-            # Crear credenciales desde el diccionario
-            creds = Credentials.from_service_account_info(credentials_dict, scopes=scope)
-            
+            creds = Credentials.from_service_account_file(
+                self.google_credentials_file, scopes=scope)
             self.gc = gspread.authorize(creds)
             self.spreadsheet = self.gc.open_by_key(self.spreadsheet_key)
             
             # Configurar hojas
             self.setup_sheets()
             
-            logger.info("Google Sheets configurado correctamente")
-            
-        except json.JSONDecodeError:
-            logger.error("Error: GOOGLE_CREDENTIALS no es un JSON válido")
-            raise
         except Exception as e:
             logger.error(f"Error configurando Google Sheets: {e}")
             raise
@@ -616,34 +600,30 @@ class ExpenseBot:
 • Análisis por categoría
 • Indicadores visuales (verde/rojo según balance)
 
-Bot funcionando 24/7 en Railway ☁️
+¿Problemas? Asegurate de que el bot tenga acceso a tu Google Sheets.
         """
         await update.message.reply_text(help_text, parse_mode='Markdown')
     
     def run(self):
         """Ejecutar el bot"""
-        try:
-            application = Application.builder().token(self.telegram_token).build()
-            
-            # Handlers
-            application.add_handler(CommandHandler("start", self.start))
-            application.add_handler(CommandHandler("categorias", self.show_categories))
-            application.add_handler(CommandHandler("resumen", self.get_monthly_summary))
-            application.add_handler(CommandHandler("help", self.help_command))
-            application.add_handler(CallbackQueryHandler(self.handle_category_selection))
-            application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_expense))
-            
-            logger.info("Bot iniciado correctamente")
-            application.run_polling()
-            
-        except Exception as e:
-            logger.error(f"Error ejecutando bot: {e}")
-            raise
+        application = Application.builder().token(self.telegram_token).build()
+        
+        # Handlers
+        application.add_handler(CommandHandler("start", self.start))
+        application.add_handler(CommandHandler("categorias", self.show_categories))
+        application.add_handler(CommandHandler("resumen", self.get_monthly_summary))
+        application.add_handler(CommandHandler("help", self.help_command))
+        application.add_handler(CallbackQueryHandler(self.handle_category_selection))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_expense))
+        
+        logger.info("Bot iniciado")
+        application.run_polling()
 
 if __name__ == "__main__":
-    try:
-        bot = ExpenseBot()
-        bot.run()
-    except Exception as e:
-        logger.error(f"Error fatal: {e}")
-        exit(1)
+    # Configuración - Reemplazá con tus valores
+    TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+    GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE")
+    SPREADSHEET_KEY = os.getenv("SPREADSHEET_KEY")
+    
+    bot = ExpenseBot(TELEGRAM_TOKEN, GOOGLE_CREDENTIALS_FILE, SPREADSHEET_KEY)
+    bot.run()
