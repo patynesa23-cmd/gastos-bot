@@ -1,6 +1,7 @@
 import logging
 import re
 import os
+import json
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 import asyncio
@@ -22,9 +23,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class ExpenseBot:
-    def __init__(self, telegram_token: str, google_credentials_file: str, spreadsheet_key: str):
+    def __init__(self, telegram_token: str, google_credentials: str, spreadsheet_key: str):
         self.telegram_token = telegram_token
-        self.google_credentials_file = google_credentials_file
+        self.google_credentials = google_credentials
         self.spreadsheet_key = spreadsheet_key
         
         # Inicializar Google Sheets
@@ -49,8 +50,17 @@ class ExpenseBot:
                     'https://www.googleapis.com/auth/drive',
                     'https://www.googleapis.com/auth/spreadsheets']
             
-            creds = Credentials.from_service_account_file(
-                self.google_credentials_file, scopes=scope)
+            # Si google_credentials es un path a archivo, usarlo como archivo
+            # Si es un JSON string, parsearlo directamente
+            if os.path.exists(self.google_credentials):
+                creds = Credentials.from_service_account_file(
+                    self.google_credentials, scopes=scope)
+            else:
+                # Asumir que es JSON string (para deployment)
+                credentials_info = json.loads(self.google_credentials)
+                creds = Credentials.from_service_account_info(
+                    credentials_info, scopes=scope)
+            
             self.gc = gspread.authorize(creds)
             self.spreadsheet = self.gc.open_by_key(self.spreadsheet_key)
             
@@ -635,19 +645,20 @@ if __name__ == "__main__":
     try:
         # Configuración - Variables de entorno
         TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-        GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE")
+        # Priorizar GOOGLE_CREDENTIALS sobre GOOGLE_CREDENTIALS_FILE
+        GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS") or os.getenv("GOOGLE_CREDENTIALS_FILE")
         SPREADSHEET_KEY = os.getenv("SPREADSHEET_KEY")
         
         # Validar que las variables existan
         if not TELEGRAM_TOKEN:
             raise ValueError("TELEGRAM_TOKEN no está definido en las variables de entorno")
-        if not GOOGLE_CREDENTIALS_FILE:
-            raise ValueError("GOOGLE_CREDENTIALS_FILE no está definido en las variables de entorno") 
+        if not GOOGLE_CREDENTIALS:
+            raise ValueError("GOOGLE_CREDENTIALS o GOOGLE_CREDENTIALS_FILE no está definido en las variables de entorno") 
         if not SPREADSHEET_KEY:
             raise ValueError("SPREADSHEET_KEY no está definido en las variables de entorno")
         
         logger.info("Iniciando bot de gastos...")
-        bot = ExpenseBot(TELEGRAM_TOKEN, GOOGLE_CREDENTIALS_FILE, SPREADSHEET_KEY)
+        bot = ExpenseBot(TELEGRAM_TOKEN, GOOGLE_CREDENTIALS, SPREADSHEET_KEY)
         logger.info("Google Sheets configurado correctamente")
         bot.run()
         
