@@ -51,15 +51,40 @@ class ExpenseBot:
                     'https://www.googleapis.com/auth/spreadsheets']
             
             # Si google_credentials es un path a archivo, usarlo como archivo
-            # Si es un JSON string, parsearlo directamente
             if os.path.exists(self.google_credentials):
+                logger.info("Usando archivo de credenciales local")
                 creds = Credentials.from_service_account_file(
                     self.google_credentials, scopes=scope)
             else:
-                # Asumir que es JSON string (para deployment)
-                credentials_info = json.loads(self.google_credentials)
-                creds = Credentials.from_service_account_info(
-                    credentials_info, scopes=scope)
+                # Intentar parsear como JSON string (para deployment)
+                logger.info("Intentando parsear credenciales como JSON")
+                try:
+                    # Limpiar la cadena de posibles caracteres extra
+                    credentials_str = self.google_credentials.strip()
+                    
+                    # Si la cadena no empieza con {, podría ser base64 encoded
+                    if not credentials_str.startswith('{'):
+                        import base64
+                        try:
+                            credentials_str = base64.b64decode(credentials_str).decode('utf-8')
+                            logger.info("Credenciales decodificadas desde base64")
+                        except:
+                            pass
+                    
+                    credentials_info = json.loads(credentials_str)
+                    creds = Credentials.from_service_account_info(
+                        credentials_info, scopes=scope)
+                    
+                except json.JSONDecodeError as je:
+                    logger.error(f"Error parseando JSON: {je}")
+                    logger.error(f"Primeros 100 caracteres de credentials: {self.google_credentials[:100]}")
+                    # Intentar como archivo por si Railway puso la ruta
+                    if '/' in self.google_credentials or 'credentials' in self.google_credentials.lower():
+                        logger.info("Intentando tratar como ruta de archivo")
+                        creds = Credentials.from_service_account_file(
+                            self.google_credentials, scopes=scope)
+                    else:
+                        raise
             
             self.gc = gspread.authorize(creds)
             self.spreadsheet = self.gc.open_by_key(self.spreadsheet_key)
