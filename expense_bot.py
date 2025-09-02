@@ -77,14 +77,46 @@ class ExpenseBot:
                     
                 except json.JSONDecodeError as je:
                     logger.error(f"Error parseando JSON: {je}")
-                    logger.error(f"Primeros 100 caracteres de credentials: {self.google_credentials[:100]}")
-                    # Intentar como archivo por si Railway puso la ruta
-                    if '/' in self.google_credentials or 'credentials' in self.google_credentials.lower():
-                        logger.info("Intentando tratar como ruta de archivo")
-                        creds = Credentials.from_service_account_file(
-                            self.google_credentials, scopes=scope)
-                    else:
-                        raise
+                    logger.error(f"Longitud total de credentials: {len(self.google_credentials)}")
+                    logger.error(f"Primeros 200 caracteres: {repr(self.google_credentials[:200])}")
+                    logger.error(f"Últimos 100 caracteres: {repr(self.google_credentials[-100:])}")
+                    
+                    # Intentar reparar JSON común de Railway
+                    try:
+                        logger.info("Intentando reparar JSON malformado")
+                        # Railway a veces escapa las comillas de manera extraña
+                        fixed_credentials = self.google_credentials
+                        
+                        # Reemplazar comillas simples por dobles si es necesario
+                        if "'" in fixed_credentials and '"' not in fixed_credentials:
+                            fixed_credentials = fixed_credentials.replace("'", '"')
+                            logger.info("Reemplazado comillas simples por dobles")
+                        
+                        # Intentar unescape si está escaped
+                        if '\\"' in fixed_credentials:
+                            fixed_credentials = fixed_credentials.replace('\\"', '"')
+                            logger.info("Removidos escapes de comillas")
+                        
+                        # Si empieza y termina con comillas extra, removerlas
+                        if fixed_credentials.startswith('"') and fixed_credentials.endswith('"'):
+                            fixed_credentials = fixed_credentials[1:-1]
+                            logger.info("Removidas comillas externas")
+                        
+                        credentials_info = json.loads(fixed_credentials)
+                        creds = Credentials.from_service_account_info(
+                            credentials_info, scopes=scope)
+                        logger.info("JSON reparado exitosamente")
+                        
+                    except Exception as repair_error:
+                        logger.error(f"Error reparando JSON: {repair_error}")
+                        # Intentar como archivo por si Railway puso la ruta
+                        if '/' in self.google_credentials or 'credentials' in self.google_credentials.lower():
+                            logger.info("Intentando tratar como ruta de archivo")
+                            creds = Credentials.from_service_account_file(
+                                self.google_credentials, scopes=scope)
+                        else:
+                            logger.error("Todos los intentos fallaron")
+                            raise je
             
             self.gc = gspread.authorize(creds)
             self.spreadsheet = self.gc.open_by_key(self.spreadsheet_key)
